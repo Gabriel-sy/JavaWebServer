@@ -8,15 +8,21 @@ import java.io.PrintWriter;
 import java.net.ServerSocket;
 import java.net.Socket;
 
-public class SocketServer {
+public class SocketServer extends Thread {
+  private Socket client;
+
+  public SocketServer(Socket client) {
+    this.client = client;
+  }
+
   public static void main(String args[]) {
+    if (args.length < 1) {
+      System.out.print("É necessário passar o número da porta.");
+      return;
+    }
     // Cria o servidor
     try (ServerSocket server = new ServerSocket(Integer.parseInt(args[0]))) {
-      if (args.length < 1) {
-        System.out.print("É necessário passar o número da porta.");
-        return;
-      }
-      
+
       System.out.println("Servidor escutando na porta: " + args[0]);
 
       while (true) {
@@ -24,46 +30,58 @@ public class SocketServer {
         Socket client = server.accept();
 
         System.out.println("Conexão estabelecida com: " + client.getLocalPort());
+        SocketServer thread = new SocketServer(client);
+        thread.start();
+      }
 
-        // Recebendo o caminho que o cliente digitou
-        String requestedPath = getClientRequestPath(client);
+    } catch (IOException e) {
+      System.out.println("Houve um erro ao iniciar o servidor: " + e.getMessage());
+    }
+  }
 
-        String currentDirectory = System.getProperty("user.dir");
+  @Override
+  public void run() {
+    try {
+      // Recebendo o caminho que o cliente digitou
+      String requestedPath = getClientRequestPath(this.client);
 
-        File file = new File(currentDirectory + requestedPath);
-        PrintWriter out = new PrintWriter(client.getOutputStream(), true);
+      String currentDirectory = System.getProperty("user.dir");
 
-        if (file.exists() && file.isFile()) {
-          String fileName = file.getName();
+      File file = new File(currentDirectory + (requestedPath.equals("/") ? "/index.html" : requestedPath));
+      PrintWriter out = new PrintWriter(client.getOutputStream(), true);
 
-          int i = fileName.lastIndexOf('.');
-          if (!(fileName.substring(i + 1).equals(".html"))) {
+      if (file.exists() && file.isFile()) {
+        String fileName = file.getName();
+
+        int i = fileName.lastIndexOf('.');
+        if (i > 0) {
+          String extension = fileName.substring(i + 1);
+          if (!extension.equals("html")) {
             writeStatusAndHeaders(out, "400 Bad Request");
             out.println("Arquivo não é um html");
             out.close();
             client.close();
+            return;
           }
-
-          writeStatusAndHeaders(out, "200 OK");
-
-          BufferedReader fileReader = new BufferedReader(new InputStreamReader(new FileInputStream(file)));
-          String line;
-          while ((line = fileReader.readLine()) != null) {
-            out.print(line);
-          }
-          fileReader.close();
-        } else {
-          writeStatusAndHeaders(out, "404 Not Found");
-          out.println("Caminho inválido");
         }
 
-        out.close();
-        client.close();
-        
+        writeStatusAndHeaders(out, "200 OK");
+
+        BufferedReader fileReader = new BufferedReader(new InputStreamReader(new FileInputStream(file)));
+        String line;
+        while ((line = fileReader.readLine()) != null) {
+          out.println(line);
+        }
+        fileReader.close();
+      } else {
+        writeStatusAndHeaders(out, "404 Not Found");
+        out.println("Caminho inválido");
       }
 
+      out.close();
+      client.close();
     } catch (IOException e) {
-      System.out.println("Houve um erro ao iniciar o servidor.");
+      System.out.println("Erro ao processar requisição: " + e.getMessage());
     }
   }
 
